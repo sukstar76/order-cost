@@ -1,5 +1,6 @@
 import os
 import tempfile
+import uuid
 from collections import defaultdict
 from datetime import datetime
 
@@ -12,8 +13,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl_image_loader import SheetImageLoader
 
 
-def po_pre_process(path):
-    wb = openpyxl.load_workbook(path)
+def po_pre_process(path, filename):
+    wb = openpyxl.load_workbook(os.path.join(path, filename))
 
     po_data = defaultdict(list)
     po_meta = defaultdict(dict)
@@ -57,22 +58,20 @@ def po_pre_process(path):
             for cell in row:
                 if loader.image_in(cell.coordinate):
                     image = loader.get(cell.coordinate)
-                    image.save(f"{id}.png")
-                    po_image[id] = Image(f"{id}.png")
+                    image.save(os.path.join(path, f"{id}.png"))
+                    po_image[id] = Image(os.path.join(path, f"{id}.png"))
                     break
             if flag:
                 break
     return po_data, po_meta, po_image
 
 
-def fabric_pre_process(path):
-    wb = openpyxl.load_workbook(path)
+def fabric_pre_process(path, filename):
+    wb = openpyxl.load_workbook(os.path.join(path, filename), data_only=True)
     ws = wb.active
 
     material_mill_map = defaultdict(dict)
     material_mill_color_type_map = defaultdict(dict)
-
-    material_meta = defaultdict(dict)
 
     for idx in range(2, 10000):
         fabric_id = ws[idx][2].value
@@ -164,7 +163,11 @@ def create_order(po_data, po_image, material_mill_map, output_path):
             order_active.cell(row=start_idx, column=5).value = d['material']
             order_active.cell(row=start_idx, column=5).alignment = Alignment(horizontal='center', vertical='center')
 
-            order_active.cell(row=start_idx, column=6).value = material_mill_map[d['material_id']]
+            m_id = "매핑불가능"
+            if d['material_id'] in material_mill_map.keys():
+                m_id = material_mill_map[d['material_id']]
+
+            order_active.cell(row=start_idx, column=6).value = m_id
             order_active.cell(row=start_idx, column=6).alignment = Alignment(horizontal='center', vertical='center')
             start_idx += 1
 
@@ -260,13 +263,16 @@ def create_cost(po_data, po_image, po_meta, material_mill_map, material_mill_col
 
         plus = 0
         for d in data:
+            m_id = '매핑불가능'
+            if d['material_id'] in material_mill_map.keys():
+                m_id = material_mill_map[d['material_id']]
             color_type_map = material_mill_color_type_map[f"{d['material_id']}:{d['color_type']}"]
             if len(color_type_map.keys()) == 0:
                 color_type_map = {
-                    'mill': material_mill_map[d['material_id']],
-                    'cw': '매핑안됨',
-                    'fod': '매핑안됨',
-                    'lt': '매핑안됨',
+                    'mill': m_id,
+                    'cw': '매핑불가능',
+                    'fod': '매핑불가능',
+                    'lt': '매핑불가능',
                 }
 
             cost_active.cell(row=start_idx, column=plus + 4).value = color_type_map['mill']
@@ -305,34 +311,35 @@ def create_cost(po_data, po_image, po_meta, material_mill_map, material_mill_col
 
 st.title("발주서와 코스팅")
 
-po_uploaded_file = st.file_uploader("PO 차트를 업로드하세요", type=["xlsx"], key="PO")
-fabric_uploaded_file = st.file_uploader("Fabric mill 차트를 업로드하세요", type=["xlsx"], key="FABRIC_MILL")
+if st.button("다시 하기"):
+    st.rerun()
 
-#
+with st.form(key='form', clear_on_submit=True):
+    po_uploaded_file = st.file_uploader("PO 차트를 업로드하세요", type=["xlsx"], key="po_uploaded_file")
+    fabric_uploaded_file = st.file_uploader("Fabric mill 차트를 업로드하세요", type=["xlsx"], key="fabric_uploaded_file")
+    submitted = st.form_submit_button("submit")
+
 if po_uploaded_file and fabric_uploaded_file:
     with tempfile.TemporaryDirectory() as tmpdir:
         po_input_path = os.path.join(tmpdir, 'po.xlsx')
         with open(po_input_path, "wb") as f:
             f.write(po_uploaded_file.read())
-
         fabric_input_path = os.path.join(tmpdir, 'fabric.xlsx')
         with open(fabric_input_path, "wb") as f:
             f.write(fabric_uploaded_file.read())
-
         st.success("파일 업로드 완료! 데이터 처리 중 입니다")
+        po_data, po_meta, po_image = po_pre_process(tmpdir, 'po.xlsx')
+        material_mill_map, material_mill_color_type_map, max_fabric_count = fabric_pre_process(tmpdir, 'fabric.xlsx')
 
-        po_data, po_meta, po_image = po_pre_process(po_input_path)
-        material_mill_map, material_mill_color_type_map, max_fabric_count = fabric_pre_process(fabric_input_path)
-
-        order_path = f"order {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.xlsx"
-        cost_path = f"cost {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.xlsx"
-
-        create_order(po_data=po_data, po_image=po_image, material_mill_map=material_mill_map, output_path=order_path)
+        order_file_name = f"order {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.xlsx"
+        order_path = os.path.join(tmpdir, order_file_name)
+        cost_file_name = f"cost {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.xlsx"
+        cost_path = os.path.join(tmpdir, cost_file_name)
+        create_order(po_data=po_data, po_image=po_image, material_mill_map=material_mill_map,
+                     output_path=order_path)
         create_cost(po_data=po_data, po_meta=po_meta, po_image=po_image, material_mill_map=material_mill_map,
                     material_mill_color_type_map=material_mill_color_type_map, max_fabric_count=max_fabric_count,
                     output_path=cost_path)
-
         st.success("데이터 처리 완료! 다운로드 버튼을 눌러주세요!")
-
         st.download_button(label='발주서', data=open(order_path, "rb"), file_name=os.path.basename(order_path))
         st.download_button(label='코스팅', data=open(cost_path, "rb"), file_name=os.path.basename(cost_path))
