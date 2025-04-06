@@ -79,7 +79,7 @@ def fabric_pre_process(path, filename):
         mill = ws[idx][0].value
         fod = ws[idx][11].value
         cw = ws[idx][9].value
-        lt = ws[idx][16].value
+        lt = ws[idx][15].value
 
         if fabric_id is None:
             break
