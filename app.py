@@ -310,6 +310,7 @@ def create_cost(po_data, po_image, po_meta, material_mill_map, material_mill_col
 
 
 st.title("발주서와 코스팅")
+st.title("Version 0.0.4")
 
 if st.button("다시 하기"):
     st.rerun()
