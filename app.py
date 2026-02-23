@@ -28,12 +28,13 @@ def po_pre_process(path, filename):
         po_data[id] = []
 
         for idx in range(3, 500):
-            if sheet[idx][1].value == 'Trims':
-                break
-
             placement = sheet[idx][1].value
+            if placement == 'Trims':
+                continue
             body = sheet[idx][2].value
             material = sheet[idx][3].value
+            if material is None:
+                continue
             color = sheet[idx][4].value
             sc_body = sheet[idx][8].value
             color_type = sheet[idx][10].value
